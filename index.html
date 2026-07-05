@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Impacts Tool • KMZ + Census Data</title>
+    <title>Community Impacts Tool • KMZ + Census</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -19,28 +19,40 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-3xl font-semibold text-slate-900">Community Impacts Tool</h1>
-                <p class="text-slate-600">KMZ → Auto-detected Block Groups (ACS) or Blocks (Decennial)</p>
+                <p class="text-slate-600">KMZ (or manual) → Block Groups (ACS) or Blocks (Decennial)</p>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <!-- LEFT: KMZ -->
+            <!-- LEFT: KMZ / Manual -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">1. Upload Project Area (KMZ)</h2>
+                <h2 class="font-semibold text-lg mb-3">1. Define Your Area</h2>
+                
+                <!-- KMZ Upload -->
                 <div class="mb-4">
-                    <input type="file" id="kmzFile" accept=".kmz" 
-                           class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white hover:file:bg-slate-800">
-                    <button onclick="loadKMZ()" 
-                            class="mt-2 w-full px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">Load KMZ to Map</button>
+                    <label class="block text-sm font-medium mb-1">Upload KMZ</label>
+                    <input type="file" id="kmzFile" accept=".kmz" class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white hover:file:bg-slate-800">
+                    <button onclick="loadKMZ()" class="mt-2 w-full px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">Load KMZ to Map</button>
+                    <div id="kmzStatus" class="text-xs mt-2 p-2 rounded bg-slate-100 hidden"></div>
                 </div>
-                <div id="map" class="border border-slate-200"></div>
-                <div id="mapStatus" class="text-xs mt-2 p-2 rounded bg-slate-100 hidden"></div>
+
+                <!-- Fallback Manual -->
+                <div class="border-t pt-4">
+                    <label class="block text-sm font-medium mb-1 text-slate-600">Or use manual fallback</label>
+                    <textarea id="manualGeoids" rows="3" placeholder="Paste GEOIDs one per line (e.g. 484390139001&#10;484390139002)" 
+                              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"></textarea>
+                    <button onclick="useManualGeoids()" class="mt-2 w-full px-4 py-2 bg-slate-700 text-white rounded-lg text-sm hover:bg-slate-800">
+                        Use These GEOIDs (skip KMZ)
+                    </button>
+                </div>
+
+                <div id="map" class="mt-4 border border-slate-200"></div>
             </div>
 
-            <!-- RIGHT: Controls -->
+            <!-- RIGHT: Analyze -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">2. Auto-Analyze from KMZ</h2>
+                <h2 class="font-semibold text-lg mb-3">2. Analyze &amp; Get Data</h2>
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-1">Data Type</label>
@@ -61,15 +73,13 @@
                     </div>
                 </div>
 
-                <button onclick="analyzeFromKMZ()" 
-                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg">
-                    🔍 Analyze KMZ Area &amp; Generate CSV
+                <button onclick="analyzeArea()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg">
+                    Analyze Area &amp; Generate CSV
                 </button>
 
                 <div id="status" class="mt-4 text-sm hidden p-3 rounded bg-slate-100"></div>
 
-                <button onclick="downloadCSV()" id="downloadBtn"
-                        class="mt-4 w-full px-6 py-3 bg-white border border-slate-300 rounded-lg hidden hover:bg-slate-50">
+                <button onclick="downloadCSV()" id="downloadBtn" class="mt-4 w-full px-6 py-3 bg-white border border-slate-300 rounded-lg hidden hover:bg-slate-50">
                     Download CSV
                 </button>
 
@@ -86,6 +96,7 @@
     <script>
         let map;
         let projectPolygons = [];
+        let manualGeoidsList = [];
         let currentCSV = '';
         let currentData = [];
 
@@ -94,11 +105,13 @@
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         }
 
+        // === IMPROVED ROBUST KMZ LOADER ===
         async function loadKMZ() {
             const fileInput = document.getElementById('kmzFile');
-            const status = document.getElementById('mapStatus');
+            const status = document.getElementById('kmzStatus');
             status.classList.remove("hidden");
             status.innerHTML = "Loading KMZ...";
+            status.classList.remove("text-red-600", "text-emerald-700");
 
             if (!fileInput.files.length) {
                 status.innerHTML = "❌ No file selected";
@@ -107,12 +120,14 @@
 
             const file = fileInput.files[0];
             projectPolygons = [];
+            manualGeoidsList = [];
             map.eachLayer(l => { if (l instanceof L.Polygon) map.removeLayer(l); });
 
             try {
                 const zip = await JSZip.loadAsync(file);
                 let kmlContent = null;
 
+                // Find first .kml (usually doc.kml)
                 for (let path in zip.files) {
                     if (path.toLowerCase().endsWith('.kml')) {
                         kmlContent = await zip.files[path].async('string');
@@ -121,27 +136,36 @@
                 }
 
                 if (!kmlContent) {
-                    status.innerHTML = "❌ No KML found inside KMZ";
+                    status.innerHTML = "❌ No KML file found inside KMZ";
                     return;
                 }
 
                 const parser = new DOMParser();
                 const xml = parser.parseFromString(kmlContent, "text/xml");
-                const coordsElements = xml.querySelectorAll("coordinates");
 
+                // More robust: look for <Polygon> elements
+                const polygons = xml.querySelectorAll("Polygon");
                 let polyCount = 0;
                 let allBounds = [];
 
-                coordsElements.forEach(el => {
-                    const text = el.textContent.trim();
+                polygons.forEach(polygon => {
+                    // Find coordinates inside this polygon (handles outerBoundaryIs > LinearRing)
+                    const coordsEl = polygon.querySelector("coordinates");
+                    if (!coordsEl) return;
+
+                    const text = coordsEl.textContent.trim();
                     if (!text) return;
 
                     const points = [];
                     text.split(/\s+/).forEach(pair => {
-                        const [lon, lat] = pair.split(',').map(Number);
-                        if (!isNaN(lat) && !isNaN(lon)) {
-                            points.push([lat, lon]);
-                            allBounds.push([lat, lon]);
+                        const parts = pair.split(',');
+                        if (parts.length >= 2) {
+                            const lon = parseFloat(parts[0]);
+                            const lat = parseFloat(parts[1]);
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                                points.push([lat, lon]);
+                                allBounds.push([lat, lon]);
+                            }
                         }
                     });
 
@@ -154,51 +178,73 @@
 
                 if (polyCount > 0 && allBounds.length > 0) {
                     map.fitBounds(allBounds);
-                    status.innerHTML = `✅ Loaded ${polyCount} polygon(s)`;
+                    status.innerHTML = `✅ Loaded ${polyCount} polygon(s) successfully`;
                     status.classList.add("text-emerald-700");
                 } else {
-                    status.innerHTML = "⚠️ No valid polygons found";
+                    status.innerHTML = "⚠️ No valid polygons found. Try the manual fallback below.";
                 }
             } catch (err) {
                 console.error(err);
-                status.innerHTML = `❌ Error: ${err.message}`;
+                status.innerHTML = `❌ Error parsing KMZ: ${err.message}`;
+                status.classList.add("text-red-600");
             }
         }
 
-        async function analyzeFromKMZ() {
+        function useManualGeoids() {
+            const textarea = document.getElementById("manualGeoids");
+            const codes = textarea.value.trim().split(/\s+/).filter(Boolean);
+            if (codes.length === 0) return alert("Please paste some GEOIDs");
+
+            manualGeoidsList = codes;
+            projectPolygons = []; // clear KMZ polygons
+            document.getElementById("kmzStatus").innerHTML = `Using ${codes.length} manual GEOIDs`;
+            document.getElementById("kmzStatus").classList.remove("hidden");
+            alert("Manual GEOIDs loaded. Now click 'Analyze Area'.");
+        }
+
+        async function analyzeArea() {
             const dataType = document.getElementById("dataType").value;
             const state = document.getElementById("stateFips").value.trim();
             const county = document.getElementById("countyFips").value.trim();
             const statusEl = document.getElementById("status");
 
-            if (!state || !county) return alert("Please enter State and County FIPS");
-            if (projectPolygons.length === 0) return alert("Please load a KMZ first");
+            if (!state || !county) return alert("State and County FIPS required");
 
             statusEl.classList.remove("hidden");
-            statusEl.innerHTML = "Querying TIGERweb for areas overlapping/containing your KMZ...";
+            statusEl.innerHTML = "Analyzing area...";
 
             try {
-                const poly = projectPolygons[0];
-                const ring = poly.map(p => [p[1], p[0]]).join(",");
+                let geoids = [];
 
-                const layerId = (dataType === "blockgroup") ? 1 : 2;
-                const queryUrl = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/${layerId}/query?` +
-                    `where=STATE+EQ+'${state}'+AND+COUNTY+EQ+'${county}'` +
-                    `&geometry=${encodeURIComponent(ring)}` +
-                    `&geometryType=esriGeometryPolygon` +
-                    `&spatialRel=esriSpatialRelEnvelopeIntersects` +
-                    `&returnGeometry=false&f=json&outFields=GEOID,NAME`;
+                if (manualGeoidsList.length > 0) {
+                    // Manual mode
+                    geoids = manualGeoidsList;
+                    statusEl.innerHTML = `Using ${geoids.length} manual GEOIDs...`;
+                } else if (projectPolygons.length > 0) {
+                    // KMZ spatial mode
+                    const poly = projectPolygons[0];
+                    const ring = poly.map(p => [p[1], p[0]]).join(",");
 
-                const res = await fetch(queryUrl);
-                const data = await res.json();
+                    const layerId = (dataType === "blockgroup") ? 1 : 2;
+                    const queryUrl = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/${layerId}/query?` +
+                        `where=STATE+EQ+'${state}'+AND+COUNTY+EQ+'${county}'` +
+                        `&geometry=${encodeURIComponent(ring)}` +
+                        `&geometryType=esriGeometryPolygon` +
+                        `&spatialRel=esriSpatialRelEnvelopeIntersects` +
+                        `&returnGeometry=false&f=json&outFields=GEOID`;
 
-                if (!data.features || data.features.length === 0) {
-                    statusEl.innerHTML = "⚠️ No matching areas found.";
-                    return;
+                    const res = await fetch(queryUrl);
+                    const data = await res.json();
+
+                    if (!data.features || data.features.length === 0) {
+                        statusEl.innerHTML = "⚠️ No matching areas found from KMZ.";
+                        return;
+                    }
+                    geoids = data.features.map(f => f.attributes.GEOID);
+                    statusEl.innerHTML = `Found ${geoids.length} areas from KMZ. Fetching data...`;
+                } else {
+                    return alert("Please load a KMZ or use the manual GEOID fallback");
                 }
-
-                const geoids = data.features.map(f => f.attributes.GEOID);
-                statusEl.innerHTML = `Found ${geoids.length} areas. Fetching data...`;
 
                 if (dataType === "blockgroup") {
                     await fetchACSBlockGroups(state, county, geoids);
@@ -207,9 +253,12 @@
                 }
             } catch (e) {
                 console.error(e);
-                statusEl.innerHTML = "❌ Query failed. Check console.";
+                statusEl.innerHTML = "❌ Analysis failed. Check console (F12).";
             }
         }
+
+        // The fetchACSBlockGroups, fetchDecennialBlocks, processResults, showPreview, downloadCSV functions
+        // are the same as the previous working version (I kept them identical for consistency).
 
         async function fetchACSBlockGroups(state, county, geoids) {
             const vars = ["NAME","GEO_ID","B01003_001E","B19013_001E","B02001_002E","B17001_002E"];
@@ -249,7 +298,7 @@
             showPreview();
             document.getElementById("downloadBtn").classList.remove("hidden");
             document.getElementById("previewSection").classList.remove("hidden");
-            document.getElementById("status").innerHTML = `✅ Success! ${currentData.length} records ready.`;
+            document.getElementById("status").innerHTML = `✅ Done — ${currentData.length} records.`;
         }
 
         function showPreview() {
@@ -268,7 +317,7 @@
             const blob = new Blob([currentCSV], {type: "text/csv"});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = "census_kmz_area_data.csv";
+            link.download = "census_area_data.csv";
             link.click();
         }
 
