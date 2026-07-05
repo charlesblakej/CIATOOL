@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Impacts Tool • KMZ + ACS CSV</title>
+    <title>Community Impacts Tool • KMZ + Census Data</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -11,8 +11,7 @@
     <style>
         body { font-family: system-ui, sans-serif; }
         .simple-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        #map { height: 380px; border-radius: 12px; }
-        table { font-size: 0.875rem; }
+        #map { height: 420px; border-radius: 12px; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -20,38 +19,35 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-3xl font-semibold text-slate-900">Community Impacts Tool</h1>
-                <p class="text-slate-600">KMZ → Block Group ACS 5-Year CSV (simple & free)</p>
-            </div>
-            <div class="text-right text-sm text-slate-500">
-                Client-side • GitHub Pages • No cost
+                <p class="text-slate-600">KMZ → Auto-detected Block Groups (ACS) or Blocks (Decennial)</p>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <!-- LEFT: KMZ Upload + Map -->
+            <!-- LEFT: KMZ -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">1. Visualize Your Area (KMZ)</h2>
+                <h2 class="font-semibold text-lg mb-3">1. Upload Project Area (KMZ)</h2>
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Upload KMZ file</label>
                     <input type="file" id="kmzFile" accept=".kmz" 
                            class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white hover:file:bg-slate-800">
                     <button onclick="loadKMZ()" 
-                            class="mt-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-black">Load to Map</button>
+                            class="mt-2 w-full px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">Load KMZ to Map</button>
                 </div>
-                
                 <div id="map" class="border border-slate-200"></div>
-                <div id="mapStatus" class="text-xs text-emerald-600 mt-2 hidden">✓ Area loaded on map</div>
+                <div id="mapStatus" class="text-xs mt-2 p-2 rounded bg-slate-100 hidden"></div>
             </div>
 
-            <!-- RIGHT: ACS CSV Generator -->
+            <!-- RIGHT: Controls -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">2. Generate Block Group ACS CSV</h2>
-                
+                <h2 class="font-semibold text-lg mb-3">2. Auto-Analyze from KMZ</h2>
+
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Census API Key (free, recommended)</label>
-                    <input type="text" id="apiKey" placeholder="Get free key at api.census.gov"
-                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    <label class="block text-sm font-medium mb-1">Data Type</label>
+                    <select id="dataType" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                        <option value="blockgroup">Block Groups (ACS 5-Year)</option>
+                        <option value="block">Blocks (2020 Decennial)</option>
+                    </select>
                 </div>
 
                 <div class="grid grid-cols-2 gap-3 mb-4">
@@ -61,37 +57,21 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1">County FIPS</label>
-                        <input type="text" id="countyFips" value="439" placeholder="439 for Tarrant"
-                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                        <input type="text" id="countyFips" value="439" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Block Group Codes (one per line)</label>
-                    <textarea id="bgCodes" rows="5" placeholder="001001&#10;001002&#10;001003"
-                              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"></textarea>
-                </div>
+                <button onclick="analyzeFromKMZ()" 
+                        class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg">
+                    🔍 Analyze KMZ Area &amp; Generate CSV
+                </button>
 
-                <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2">Variables to Include</label>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                        <label><input type="checkbox" id="var_pop" checked> Total Population</label>
-                        <label><input type="checkbox" id="var_income" checked> Median Income</label>
-                        <label><input type="checkbox" id="var_minority" checked> % Minority</label>
-                        <label><input type="checkbox" id="var_poverty"> % Below Poverty</label>
-                    </div>
-                </div>
+                <div id="status" class="mt-4 text-sm hidden p-3 rounded bg-slate-100"></div>
 
-                <div class="flex gap-3">
-                    <button onclick="generateCSV()" 
-                            class="flex-1 bg-emerald-600 text-white font-medium py-3 rounded-lg">
-                        Generate CSV
-                    </button>
-                    <button onclick="downloadCSV()" id="downloadBtn"
-                            class="px-6 bg-white border border-slate-300 rounded-lg hidden">
-                        Download
-                    </button>
-                </div>
+                <button onclick="downloadCSV()" id="downloadBtn"
+                        class="mt-4 w-full px-6 py-3 bg-white border border-slate-300 rounded-lg hidden hover:bg-slate-50">
+                    Download CSV
+                </button>
 
                 <div id="previewSection" class="mt-6 hidden">
                     <h3 class="font-medium text-sm mb-2">Preview</h3>
@@ -105,6 +85,7 @@
 
     <script>
         let map;
+        let projectPolygons = [];
         let currentCSV = '';
         let currentData = [];
 
@@ -115,92 +96,171 @@
 
         async function loadKMZ() {
             const fileInput = document.getElementById('kmzFile');
-            if (!fileInput.files.length) return alert("Please select a KMZ file");
-            const file = fileInput.files[0];
             const status = document.getElementById('mapStatus');
-            
+            status.classList.remove("hidden");
+            status.innerHTML = "Loading KMZ...";
+
+            if (!fileInput.files.length) {
+                status.innerHTML = "❌ No file selected";
+                return;
+            }
+
+            const file = fileInput.files[0];
+            projectPolygons = [];
+            map.eachLayer(l => { if (l instanceof L.Polygon) map.removeLayer(l); });
+
             try {
                 const zip = await JSZip.loadAsync(file);
-                let kmlString = null;
-                zip.forEach((path, entry) => {
-                    if (path.toLowerCase().endsWith('.kml') && !kmlString) {
-                        kmlString = entry.async('string');
-                    }
-                });
-                if (!kmlString) return alert("No KML found in KMZ");
+                let kmlContent = null;
 
-                const text = await kmlString;
+                for (let path in zip.files) {
+                    if (path.toLowerCase().endsWith('.kml')) {
+                        kmlContent = await zip.files[path].async('string');
+                        break;
+                    }
+                }
+
+                if (!kmlContent) {
+                    status.innerHTML = "❌ No KML found inside KMZ";
+                    return;
+                }
+
                 const parser = new DOMParser();
-                const xml = parser.parseFromString(text, "text/xml");
-                const coordsList = xml.querySelectorAll("coordinates");
-                
-                let allPoints = [];
-                coordsList.forEach(el => {
-                    const points = el.textContent.trim().split(/\s+/).map(pair => {
-                        const coords = pair.split(',').map(Number);
-                        return [coords[1], coords[0]];
-                    }).filter(p => !isNaN(p[0]));
+                const xml = parser.parseFromString(kmlContent, "text/xml");
+                const coordsElements = xml.querySelectorAll("coordinates");
+
+                let polyCount = 0;
+                let allBounds = [];
+
+                coordsElements.forEach(el => {
+                    const text = el.textContent.trim();
+                    if (!text) return;
+
+                    const points = [];
+                    text.split(/\s+/).forEach(pair => {
+                        const [lon, lat] = pair.split(',').map(Number);
+                        if (!isNaN(lat) && !isNaN(lon)) {
+                            points.push([lat, lon]);
+                            allBounds.push([lat, lon]);
+                        }
+                    });
+
                     if (points.length > 2) {
-                        L.polygon(points, {color: "#003366", weight: 3}).addTo(map);
-                        allPoints = allPoints.concat(points);
+                        L.polygon(points, {color: "#003366", weight: 3, fillOpacity: 0.2}).addTo(map);
+                        projectPolygons.push(points);
+                        polyCount++;
                     }
                 });
 
-                if (allPoints.length) map.fitBounds(allPoints);
-                status.textContent = "✓ KMZ loaded";
-                status.classList.remove("hidden");
-            } catch(e) {
-                alert("Error reading KMZ. Try a simpler file.");
+                if (polyCount > 0 && allBounds.length > 0) {
+                    map.fitBounds(allBounds);
+                    status.innerHTML = `✅ Loaded ${polyCount} polygon(s)`;
+                    status.classList.add("text-emerald-700");
+                } else {
+                    status.innerHTML = "⚠️ No valid polygons found";
+                }
+            } catch (err) {
+                console.error(err);
+                status.innerHTML = `❌ Error: ${err.message}`;
             }
         }
 
-        async function generateCSV() {
-            const state = document.getElementById("stateFips").value;
-            const county = document.getElementById("countyFips").value;
-            const codes = document.getElementById("bgCodes").value.trim().split(/\s+/).filter(Boolean);
+        async function analyzeFromKMZ() {
+            const dataType = document.getElementById("dataType").value;
+            const state = document.getElementById("stateFips").value.trim();
+            const county = document.getElementById("countyFips").value.trim();
+            const statusEl = document.getElementById("status");
 
-            if (!state || !county || codes.length === 0) return alert("Please fill state, county, and block group codes");
+            if (!state || !county) return alert("Please enter State and County FIPS");
+            if (projectPolygons.length === 0) return alert("Please load a KMZ first");
 
-            const url = `https://api.census.gov/data/2023/acs/acs5?get=NAME,GEO_ID,B01003_001E,B19013_001E,B02001_002E&for=block%20group:${codes.join(",")}&in=state:${state}+county:${county}`;
-            
+            statusEl.classList.remove("hidden");
+            statusEl.innerHTML = "Querying TIGERweb for areas overlapping/containing your KMZ...";
+
             try {
-                const res = await fetch(url);
-                const json = await res.json();
-                const headers = json[0];
-                const rows = json.slice(1);
+                const poly = projectPolygons[0];
+                const ring = poly.map(p => [p[1], p[0]]).join(",");
 
-                currentData = rows.map(r => {
-                    const total = parseFloat(r[2]) || 0;
-                    const white = parseFloat(r[4]) || 0;
-                    return {
-                        "GEOID": r[3],
-                        "Name": r[0],
-                        "Population": r[2],
-                        "Median Income": r[1],
-                        "% Minority": total ? ((total - white)/total*100).toFixed(1) : ""
-                    };
-                });
+                const layerId = (dataType === "blockgroup") ? 1 : 2;
+                const queryUrl = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/${layerId}/query?` +
+                    `where=STATE+EQ+'${state}'+AND+COUNTY+EQ+'${county}'` +
+                    `&geometry=${encodeURIComponent(ring)}` +
+                    `&geometryType=esriGeometryPolygon` +
+                    `&spatialRel=esriSpatialRelEnvelopeIntersects` +
+                    `&returnGeometry=false&f=json&outFields=GEOID,NAME`;
 
-                const csv = [Object.keys(currentData[0]).join(","),
-                            ...currentData.map(row => Object.values(row).join(","))].join("\n");
-                currentCSV = csv;
+                const res = await fetch(queryUrl);
+                const data = await res.json();
 
-                showPreview();
-                document.getElementById("downloadBtn").classList.remove("hidden");
-                document.getElementById("previewSection").classList.remove("hidden");
-            } catch(e) {
-                alert("Failed to fetch data. Check your block group codes.");
+                if (!data.features || data.features.length === 0) {
+                    statusEl.innerHTML = "⚠️ No matching areas found.";
+                    return;
+                }
+
+                const geoids = data.features.map(f => f.attributes.GEOID);
+                statusEl.innerHTML = `Found ${geoids.length} areas. Fetching data...`;
+
+                if (dataType === "blockgroup") {
+                    await fetchACSBlockGroups(state, county, geoids);
+                } else {
+                    await fetchDecennialBlocks(state, county, geoids);
+                }
+            } catch (e) {
+                console.error(e);
+                statusEl.innerHTML = "❌ Query failed. Check console.";
             }
+        }
+
+        async function fetchACSBlockGroups(state, county, geoids) {
+            const vars = ["NAME","GEO_ID","B01003_001E","B19013_001E","B02001_002E","B17001_002E"];
+            const url = `https://api.census.gov/data/2023/acs/acs5?get=${vars.join(",")}&for=block%20group:*&in=state:${state}+county:${county}`;
+            const res = await fetch(url);
+            const json = await res.json();
+            processResults(json, true);
+        }
+
+        async function fetchDecennialBlocks(state, county, geoids) {
+            const vars = ["NAME","GEO_ID","P1_001N","P2_001N"];
+            const url = `https://api.census.gov/data/2020/dec/pl?get=${vars.join(",")}&for=block:*&in=state:${state}+county:${county}`;
+            const res = await fetch(url);
+            const json = await res.json();
+            processResults(json, false);
+        }
+
+        function processResults(json, isBlockGroup) {
+            const headers = json[0];
+            const rows = json.slice(1);
+
+            currentData = rows.map(r => {
+                const obj = {};
+                headers.forEach((h, i) => obj[h] = r[i]);
+                if (isBlockGroup) {
+                    const total = parseFloat(obj.B01003_001E) || 0;
+                    const white = parseFloat(obj.B02001_002E) || 0;
+                    obj["% Minority"] = total > 0 ? ((total - white) / total * 100).toFixed(1) : "";
+                }
+                return obj;
+            });
+
+            const csvHeaders = Object.keys(currentData[0] || {});
+            const csv = [csvHeaders.join(","), ...currentData.map(row => csvHeaders.map(h => `"${row[h] ?? ""}"`).join(","))].join("\n");
+            currentCSV = csv;
+
+            showPreview();
+            document.getElementById("downloadBtn").classList.remove("hidden");
+            document.getElementById("previewSection").classList.remove("hidden");
+            document.getElementById("status").innerHTML = `✅ Success! ${currentData.length} records ready.`;
         }
 
         function showPreview() {
             const table = document.getElementById("previewTable");
-            table.innerHTML = "<tr><th>GEOID</th><th>Name</th><th>Population</th><th>Median Income</th><th>% Minority</th></tr>";
+            if (!currentData.length) return;
+            const headers = Object.keys(currentData[0]);
+            let html = "<tr>" + headers.map(h => `<th class="px-2 py-1 bg-slate-100">${h}</th>`).join("") + "</tr>";
             currentData.slice(0, 8).forEach(row => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `<td>${row.GEOID}</td><td>${row.Name}</td><td>${row.Population}</td><td>${row["Median Income"]}</td><td>${row["% Minority"]}</td>`;
-                table.appendChild(tr);
+                html += "<tr>" + headers.map(h => `<td class="px-2 py-0.5 border-t">${row[h] ?? ""}</td>`).join("") + "</tr>";
             });
+            table.innerHTML = html;
         }
 
         function downloadCSV() {
@@ -208,7 +268,7 @@
             const blob = new Blob([currentCSV], {type: "text/csv"});
             const link = document.createElement("a");
             link.href = URL.createObjectURL(blob);
-            link.download = "acs_data.csv";
+            link.download = "census_kmz_area_data.csv";
             link.click();
         }
 
