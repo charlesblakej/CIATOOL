@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Impacts Tool • KMZ + Spatial Census</title>
+    <title>Community Impacts Tool • KMZ + ACS CSV</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -11,7 +11,8 @@
     <style>
         body { font-family: system-ui, sans-serif; }
         .simple-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        #map { height: 420px; border-radius: 12px; }
+        #map { height: 380px; border-radius: 12px; }
+        table { font-size: 0.875rem; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -19,52 +20,78 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-3xl font-semibold text-slate-900">Community Impacts Tool</h1>
-                <p class="text-slate-600">KMZ → Intersecting Census Areas</p>
+                <p class="text-slate-600">KMZ → Block Group ACS 5-Year CSV (simple & free)</p>
+            </div>
+            <div class="text-right text-sm text-slate-500">
+                Client-side • GitHub Pages • No cost
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <!-- LEFT: KMZ -->
+            <!-- LEFT: KMZ Upload + Map -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">1. Upload KMZ</h2>
+                <h2 class="font-semibold text-lg mb-3">1. Visualize Your Area (KMZ)</h2>
                 <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Upload KMZ file</label>
                     <input type="file" id="kmzFile" accept=".kmz" 
                            class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white hover:file:bg-slate-800">
                     <button onclick="loadKMZ()" 
-                            class="mt-3 w-full px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-black">Load KMZ to Map</button>
+                            class="mt-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-black">Load to Map</button>
                 </div>
+                
                 <div id="map" class="border border-slate-200"></div>
-                <div id="mapStatus" class="text-xs mt-2 p-2 rounded bg-slate-100 hidden"></div>
+                <div id="mapStatus" class="text-xs text-emerald-600 mt-2 hidden">✓ Area loaded on map</div>
             </div>
 
-            <!-- RIGHT: Controls -->
+            <!-- RIGHT: ACS CSV Generator -->
             <div class="simple-card p-6">
-                <h2 class="font-semibold text-lg mb-3">2. Analyze</h2>
-                <!-- (rest of controls same as previous version) -->
+                <h2 class="font-semibold text-lg mb-3">2. Generate Block Group ACS CSV</h2>
+                
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-1">Geography Level</label>
-                    <select id="geoLevel" onchange="updateVariables()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-                        <option value="blockgroup">Block Groups (ACS)</option>
-                        <option value="block">Blocks (2020 Decennial)</option>
-                    </select>
+                    <label class="block text-sm font-medium mb-1">Census API Key (free, recommended)</label>
+                    <input type="text" id="apiKey" placeholder="Get free key at api.census.gov"
+                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div><label class="block text-sm font-medium mb-1">State FIPS</label><input type="text" id="stateFips" value="48" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></div>
-                    <div><label class="block text-sm font-medium mb-1">County FIPS</label><input type="text" id="countyFips" value="439" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">State FIPS</label>
+                        <input type="text" id="stateFips" value="48" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">County FIPS</label>
+                        <input type="text" id="countyFips" value="439" placeholder="439 for Tarrant"
+                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    </div>
                 </div>
 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2">Variables</label>
-                    <div id="varContainer" class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm"></div>
+                    <label class="block text-sm font-medium mb-1">Block Group Codes (one per line)</label>
+                    <textarea id="bgCodes" rows="5" placeholder="001001&#10;001002&#10;001003"
+                              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"></textarea>
                 </div>
 
-                <button onclick="analyzeArea()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 rounded-lg">Analyze Intersecting Areas</button>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Variables to Include</label>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <label><input type="checkbox" id="var_pop" checked> Total Population</label>
+                        <label><input type="checkbox" id="var_income" checked> Median Income</label>
+                        <label><input type="checkbox" id="var_minority" checked> % Minority</label>
+                        <label><input type="checkbox" id="var_poverty"> % Below Poverty</label>
+                    </div>
+                </div>
 
-                <div id="status" class="mt-4 text-sm hidden p-3 rounded bg-slate-100"></div>
-
-                <button onclick="downloadCSV()" id="downloadBtn" class="mt-4 w-full px-6 py-3 bg-white border border-slate-300 rounded-lg hidden hover:bg-slate-50">Download CSV</button>
+                <div class="flex gap-3">
+                    <button onclick="generateCSV()" 
+                            class="flex-1 bg-emerald-600 text-white font-medium py-3 rounded-lg">
+                        Generate CSV
+                    </button>
+                    <button onclick="downloadCSV()" id="downloadBtn"
+                            class="px-6 bg-white border border-slate-300 rounded-lg hidden">
+                        Download
+                    </button>
+                </div>
 
                 <div id="previewSection" class="mt-6 hidden">
                     <h3 class="font-medium text-sm mb-2">Preview</h3>
@@ -78,7 +105,6 @@
 
     <script>
         let map;
-        let projectPolygons = [];
         let currentCSV = '';
         let currentData = [];
 
@@ -89,89 +115,106 @@
 
         async function loadKMZ() {
             const fileInput = document.getElementById('kmzFile');
-            const status = document.getElementById('mapStatus');
-            status.classList.remove("hidden");
-            status.innerHTML = "Loading KMZ...";
-
-            if (!fileInput.files.length) {
-                status.innerHTML = "❌ No file selected";
-                return;
-            }
-
+            if (!fileInput.files.length) return alert("Please select a KMZ file");
             const file = fileInput.files[0];
-            projectPolygons = [];
-
-            // Clear old layers
-            map.eachLayer(l => { if (l instanceof L.Polygon) map.removeLayer(l); });
-
+            const status = document.getElementById('mapStatus');
+            
             try {
                 const zip = await JSZip.loadAsync(file);
-                let kmlContent = null;
-
-                // Look for any .kml file
-                for (let path in zip.files) {
-                    if (path.toLowerCase().endsWith('.kml')) {
-                        kmlContent = await zip.files[path].async('string');
-                        break;
+                let kmlString = null;
+                zip.forEach((path, entry) => {
+                    if (path.toLowerCase().endsWith('.kml') && !kmlString) {
+                        kmlString = entry.async('string');
                     }
-                }
+                });
+                if (!kmlString) return alert("No KML found in KMZ");
 
-                if (!kmlContent) {
-                    status.innerHTML = "❌ No KML file found inside KMZ";
-                    return;
-                }
-
+                const text = await kmlString;
                 const parser = new DOMParser();
-                const xml = parser.parseFromString(kmlContent, "text/xml");
-                const coordsElements = xml.querySelectorAll("coordinates");
-
-                let polyCount = 0;
-                let allBoundsPoints = [];
-
-                coordsElements.forEach(el => {
-                    const text = el.textContent.trim();
-                    if (!text) return;
-
-                    const coordPairs = text.split(/\s+/);
-                    const points = [];
-
-                    for (let pair of coordPairs) {
-                        const [lon, lat] = pair.split(',').map(Number);
-                        if (!isNaN(lat) && !isNaN(lon)) {
-                            points.push([lat, lon]); // Leaflet: [lat, lon]
-                            allBoundsPoints.push([lat, lon]);
-                        }
-                    }
-
+                const xml = parser.parseFromString(text, "text/xml");
+                const coordsList = xml.querySelectorAll("coordinates");
+                
+                let allPoints = [];
+                coordsList.forEach(el => {
+                    const points = el.textContent.trim().split(/\s+/).map(pair => {
+                        const coords = pair.split(',').map(Number);
+                        return [coords[1], coords[0]];
+                    }).filter(p => !isNaN(p[0]));
                     if (points.length > 2) {
-                        L.polygon(points, {color: "#003366", weight: 3, fillOpacity: 0.2}).addTo(map);
-                        projectPolygons.push(points);
-                        polyCount++;
+                        L.polygon(points, {color: "#003366", weight: 3}).addTo(map);
+                        allPoints = allPoints.concat(points);
                     }
                 });
 
-                if (polyCount > 0 && allBoundsPoints.length > 0) {
-                    map.fitBounds(allBoundsPoints);
-                    status.innerHTML = `✅ Success: Loaded ${polyCount} polygon(s)`;
-                    status.classList.add("text-emerald-700");
-                } else {
-                    status.innerHTML = "⚠️ No valid polygons found in KMZ";
-                }
-            } catch (err) {
-                console.error(err);
-                status.innerHTML = `❌ Error: ${err.message || "Invalid KMZ"}`;
+                if (allPoints.length) map.fitBounds(allPoints);
+                status.textContent = "✓ KMZ loaded";
+                status.classList.remove("hidden");
+            } catch(e) {
+                alert("Error reading KMZ. Try a simpler file.");
             }
         }
 
-        function updateVariables() {
-            // Same as before (omitted for brevity - copy from previous version)
-            const level = document.getElementById("geoLevel").value;
-            const container = document.getElementById("varContainer");
-            container.innerHTML = level === "blockgroup" ? 
-                `<label><input type="checkbox" id="var_pop" checked> Pop</label>
-                 <label><input type="checkbox" id="var_income" checked> Income</label>
-                 <label><input type="checkbox" id="var_minority" checked> % Minority</label>` :
-                `<label><input type="checkbox" id="var_pop" checked> Population</label>`;
+        async function generateCSV() {
+            const state = document.getElementById("stateFips").value;
+            const county = document.getElementById("countyFips").value;
+            const codes = document.getElementById("bgCodes").value.trim().split(/\s+/).filter(Boolean);
+
+            if (!state || !county || codes.length === 0) return alert("Please fill state, county, and block group codes");
+
+            const url = `https://api.census.gov/data/2023/acs/acs5?get=NAME,GEO_ID,B01003_001E,B19013_001E,B02001_002E&for=block%20group:${codes.join(",")}&in=state:${state}+county:${county}`;
+            
+            try {
+                const res = await fetch(url);
+                const json = await res.json();
+                const headers = json[0];
+                const rows = json.slice(1);
+
+                currentData = rows.map(r => {
+                    const total = parseFloat(r[2]) || 0;
+                    const white = parseFloat(r[4]) || 0;
+                    return {
+                        "GEOID": r[3],
+                        "Name": r[0],
+                        "Population": r[2],
+                        "Median Income": r[1],
+                        "% Minority": total ? ((total - white)/total*100).toFixed(1) : ""
+                    };
+                });
+
+                const csv = [Object.keys(currentData[0]).join(","),
+                            ...currentData.map(row => Object.values(row).join(","))].join("\n");
+                currentCSV = csv;
+
+                showPreview();
+                document.getElementById("downloadBtn").classList.remove("hidden");
+                document.getElementById("previewSection").classList.remove("hidden");
+            } catch(e) {
+                alert("Failed to fetch data. Check your block group codes.");
+            }
         }
 
-        // analyzeArea, fetch functions, download, etc. remain the
+        function showPreview() {
+            const table = document.getElementById("previewTable");
+            table.innerHTML = "<tr><th>GEOID</th><th>Name</th><th>Population</th><th>Median Income</th><th>% Minority</th></tr>";
+            currentData.slice(0, 8).forEach(row => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `<td>${row.GEOID}</td><td>${row.Name}</td><td>${row.Population}</td><td>${row["Median Income"]}</td><td>${row["% Minority"]}</td>`;
+                table.appendChild(tr);
+            });
+        }
+
+        function downloadCSV() {
+            if (!currentCSV) return;
+            const blob = new Blob([currentCSV], {type: "text/csv"});
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "acs_data.csv";
+            link.click();
+        }
+
+        window.onload = () => {
+            initMap();
+        };
+    </script>
+</body>
+</html>
