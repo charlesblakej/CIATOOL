@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TxDOT CIA Tool • KMZ + ACS CSV</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; }
+        .simple-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        #map { height: 380px; border-radius: 12px; }
+        table { font-size: 0.875rem; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div class="max-w-6xl mx-auto p-6">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-3xl font-semibold text-slate-900">TxDOT Community Impacts Tool</h1>
+                <p class="text-slate-600">KMZ → Block Group ACS 5-Year CSV (simple & free)</p>
+            </div>
+            <div class="text-right text-sm text-slate-500">
+                Client-side • GitHub Pages • No cost
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- LEFT: KMZ Upload + Map -->
+            <div class="simple-card p-6">
+                <h2 class="font-semibold text-lg mb-3">1. Visualize Your Area (KMZ)</h2>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Upload KMZ file</label>
+                    <input type="file" id="kmzFile" accept=".kmz" 
+                           class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-slate-900 file:text-white hover:file:bg-slate-800">
+                    <button onclick="loadKMZ()" 
+                            class="mt-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-black">Load to Map</button>
+                </div>
+                
+                <div id="map" class="border border-slate-200"></div>
+                <div id="mapStatus" class="text-xs text-emerald-600 mt-2 hidden">✓ Area loaded on map</div>
+            </div>
+
+            <!-- RIGHT: ACS CSV Generator -->
+            <div class="simple-card p-6">
+                <h2 class="font-semibold text-lg mb-3">2. Generate Block Group ACS CSV</h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Census API Key (free, recommended)</label>
+                    <input type="text" id="apiKey" placeholder="Get free key at api.census.gov"
+                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">State FIPS</label>
+                        <input type="text" id="stateFips" value="48" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">County FIPS</label>
+                        <input type="text" id="countyFips" value="439" placeholder="439 for Tarrant"
+                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-1">Block Group Codes (one per line)</label>
+                    <textarea id="bgCodes" rows="5" placeholder="001001&#10;001002&#10;001003"
+                              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono"></textarea>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Variables to Include</label>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <label><input type="checkbox" id="var_pop" checked> Total Population</label>
+                        <label><input type="checkbox" id="var_income" checked> Median Income</label>
+                        <label><input type="checkbox" id="var_minority" checked> % Minority</label>
+                        <label><input type="checkbox" id="var_poverty"> % Below Poverty</label>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button onclick="generateCSV()" 
+                            class="flex-1 bg-emerald-600 text-white font-medium py-3 rounded-lg">
+                        Generate CSV
+                    </button>
+                    <button onclick="downloadCSV()" id="downloadBtn"
+                            class="px-6 bg-white border border-slate-300 rounded-lg hidden">
+                        Download
+                    </button>
+                </div>
+
+                <div id="previewSection" class="mt-6 hidden">
+                    <h3 class="font-medium text-sm mb-2">Preview</h3>
+                    <div class="overflow-auto max-h-64 border rounded-lg">
+                        <table id="previewTable" class="min-w-full text-xs"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let currentCSV = '';
+        let currentData = [];
+
+        function initMap() {
+            map = L.map('map').setView([32.75, -97.3], 9);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        }
+
+        async function loadKMZ() {
+            const fileInput = document.getElementById('kmzFile');
+            if (!fileInput.files.length) return alert("Please select a KMZ file");
+            const file = fileInput.files[0];
+            const status = document.getElementById('mapStatus');
+            
+            try {
+                const zip = await JSZip.loadAsync(file);
+                let kmlString = null;
+                zip.forEach((path, entry) => {
+                    if (path.toLowerCase().endsWith('.kml') && !kmlString) {
+                        kmlString = entry.async('string');
+                    }
+                });
+                if (!kmlString) return alert("No KML found in KMZ");
+
+                const text = await kmlString;
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, "text/xml");
+                const coordsList = xml.querySelectorAll("coordinates");
+                
+                let allPoints = [];
+                coordsList.forEach(el => {
+                    const points = el.textContent.trim().split(/\s+/).map(pair => {
+                        const coords = pair.split(',').map(Number);
+                        return [coords[1], coords[0]];
+                    }).filter(p => !isNaN(p[0]));
+                    if (points.length > 2) {
+                        L.polygon(points, {color: "#003366", weight: 3}).addTo(map);
+                        allPoints = allPoints.concat(points);
+                    }
+                });
+
+                if (allPoints.length) map.fitBounds(allPoints);
+                status.textContent = "✓ KMZ loaded";
+                status.classList.remove("hidden");
+            } catch(e) {
+                alert("Error reading KMZ. Try a simpler file.");
+            }
+        }
+
+        async function generateCSV() {
+            const state = document.getElementById("stateFips").value;
+            const county = document.getElementById("countyFips").value;
+            const codes = document.getElementById("bgCodes").value.trim().split(/\s+/).filter(Boolean);
+
+            if (!state || !county || codes.length === 0) return alert("Please fill state, county, and block group codes");
+
+            const url = `https://api.census.gov/data/2023/acs/acs5?get=NAME,GEO_ID,B01003_001E,B19013_001E,B02001_002E&for=block%20group:${codes.join(",")}&in=state:${state}+county:${county}`;
+            
+            try {
+                const res = await fetch(url);
+                const json = await res.json();
+                const headers = json[0];
+                const rows = json.slice(1);
+
+                currentData = rows.map(r => {
+                    const total = parseFloat(r[2]) || 0;
+                    const white = parseFloat(r[4]) || 0;
+                    return {
+                        "GEOID": r[3],
+                        "Name": r[0],
+                        "Population": r[2],
+                        "Median Income": r[1],
+                        "% Minority": total ? ((total - white)/total*100).toFixed(1) : ""
+                    };
+                });
+
+                const csv = [Object.keys(currentData[0]).join(","),
+                            ...currentData.map(row => Object.values(row).join(","))].join("\n");
+                currentCSV = csv;
+
+                showPreview();
+                document.getElementById("downloadBtn").classList.remove("hidden");
+                document.getElementById("previewSection").classList.remove("hidden");
+            } catch(e) {
+                alert("Failed to fetch data. Check your block group codes.");
+            }
+        }
+
+        function showPreview() {
+            const table = document.getElementById("previewTable");
+            table.innerHTML = "<tr><th>GEOID</th><th>Name</th><th>Population</th><th>Median Income</th><th>% Minority</th></tr>";
+            currentData.slice(0, 8).forEach(row => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `<td>${row.GEOID}</td><td>${row.Name}</td><td>${row.Population}</td><td>${row["Median Income"]}</td><td>${row["% Minority"]}</td>`;
+                table.appendChild(tr);
+            });
+        }
+
+        function downloadCSV() {
+            if (!currentCSV) return;
+            const blob = new Blob([currentCSV], {type: "text/csv"});
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "acs_data.csv";
+            link.click();
+        }
+
+        window.onload = () => {
+            initMap();
+        };
+    </script>
+</body>
+</html>
