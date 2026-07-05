@@ -3,171 +3,443 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Impacts Tool</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Community Demographic Assessment Tool</title>
+    
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    
+    <!-- Bootstrap 5 for clean UI -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
-        body { font-family: system-ui, sans-serif; }
-        .simple-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        #map { height: 420px; border-radius: 12px; }
+        body { font-family: system-ui, -apple-system, sans-serif; }
+        #map { height: 70vh; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .sidebar { background: #f8f9fa; border-radius: 8px; padding: 1.25rem; }
+        .stat-card { background: white; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .nav-brand { font-weight: 700; color: #0d6efd; }
+        .data-source { font-size: 0.85rem; color: #6c757d; }
+        .leaflet-popup-content { font-size: 0.9rem; }
+        .highlight { fill-opacity: 0.7; stroke: #0d6efd; stroke-width: 3; }
     </style>
 </head>
-<body class="bg-slate-50">
-    <div class="max-w-6xl mx-auto p-6">
-        <h1 class="text-3xl font-semibold mb-6">Community Impacts Tool</h1>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+        <div class="container-fluid">
+            <a class="navbar-brand nav-brand" href="#">Community Demographic Assessment Tool</a>
+            <div class="d-flex align-items-center">
+                <div class="input-group me-3" style="width: 350px;">
+                    <input type="text" id="addressSearch" class="form-control" placeholder="Search address or place (e.g. Fort Worth, TX)">
+                    <button class="btn btn-primary" onclick="searchAddress()">Search</button>
+                </div>
+                <button class="btn btn-outline-secondary me-2" onclick="clearSelection()">Clear</button>
+                <button class="btn btn-success" onclick="generateReport()">Generate Report</button>
+            </div>
+        </div>
+    </nav>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- KMZ Side -->
-            <div class="simple-card p-6">
-                <h2 class="font-semibold mb-3">1. Upload KMZ</h2>
-                <input type="file" id="kmzFile" accept=".kmz" class="block w-full mb-3">
-                <button onclick="loadKMZ()" class="w-full bg-slate-900 text-white py-2 rounded">Load KMZ to Map</button>
-                <div id="kmzStatus" class="text-xs mt-2 p-2 bg-slate-100 rounded hidden"></div>
-                <div id="map" class="mt-4 border"></div>
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <!-- Map -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><strong>Interactive Map</strong> — Click block groups to analyze</span>
+                        <div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" id="showBlockGroups" checked onchange="toggleLayer()">
+                                <label class="form-check-label" for="showBlockGroups">Block Groups</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="map"></div>
+                    </div>
+                </div>
+                <div class="mt-2 text-muted small">
+                    Data sources: U.S. Census Bureau TIGERweb (boundaries) &amp; American Community Survey (demographics). 
+                    This is a functional prototype.
+                </div>
             </div>
 
-            <!-- Controls Side -->
-            <div class="simple-card p-6">
-                <h2 class="font-semibold mb-3">2. Generate CSV</h2>
-                <select id="dataType" onchange="updateDataOptions()" class="w-full mb-4 border rounded p-2">
-                    <option value="blockgroup">Block Groups (ACS 5-Year)</option>
-                    <option value="block">Blocks (2020 Decennial)</option>
-                </select>
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <div class="sidebar">
+                    <h5 id="selectedTitle">No area selected</h5>
+                    <p id="selectedInfo" class="text-muted small mb-3">Click a block group on the map or search an address.</p>
 
-                <div id="dataOptions" class="mb-4"></div>
+                    <!-- Key Stats -->
+                    <div id="statsSection" style="display: none;">
+                        <div class="stat-card">
+                            <h6 class="mb-2">Key Statistics</h6>
+                            <div class="row g-2">
+                                <div class="col-6"><strong>Total Population:</strong> <span id="pop"></span></div>
+                                <div class="col-6"><strong>Median Income:</strong> <span id="income"></span></div>
+                                <div class="col-6"><strong>Poverty Rate:</strong> <span id="poverty"></span></div>
+                                <div class="col-6"><strong>LEP %:</strong> <span id="lep"></span></div>
+                            </div>
+                        </div>
 
-                <button onclick="analyzeArea()" class="w-full bg-emerald-600 text-white py-3 rounded font-medium">Generate CSV</button>
+                        <!-- Race Chart -->
+                        <div class="stat-card">
+                            <h6>Race / Ethnicity</h6>
+                            <canvas id="raceChart" height="140"></canvas>
+                        </div>
 
-                <div id="status" class="mt-4 text-sm hidden p-3 bg-slate-100 rounded"></div>
+                        <!-- Education / Other -->
+                        <div class="stat-card">
+                            <h6>Selected Metrics</h6>
+                            <table class="table table-sm mb-0">
+                                <tbody id="metricsTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
 
-                <button onclick="downloadCSV()" id="downloadBtn" class="mt-4 w-full border py-3 rounded hidden">Download CSV</button>
+                    <div id="noSelection" class="text-center py-4 text-muted">
+                        <p>Select a block group on the map to view detailed community demographics.</p>
+                    </div>
 
-                <div id="previewSection" class="mt-6 hidden">
-                    <h3 class="font-medium mb-2">Preview</h3>
-                    <div class="overflow-auto max-h-64 border rounded">
-                        <table id="previewTable" class="min-w-full text-xs"></table>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary btn-sm w-100" onclick="showDataSources()">View Data Sources &amp; Methodology</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        let map, projectPolygons = [], currentCSV = '', currentData = [];
+    <!-- Report Modal -->
+    <div class="modal fade" id="reportModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Community Impact Summary Report</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="reportContent"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="downloadReport()">Download as Text</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-        function initMap() {
-            map = L.map('map').setView([32.75, -97.3], 9);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    <!-- Data Sources Modal -->
+    <div class="modal fade" id="sourcesModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Data Sources &amp; Notes</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul>
+                        <li><strong>Boundaries:</strong> U.S. Census Bureau TIGERweb REST services (Block Groups, Tracts, Blocks)</li>
+                        <li><strong>Demographics:</strong> American Community Survey (ACS) 5-year estimates via Census Data API</li>
+                        <li><strong>Texas-specific:</strong> Texas Demographic Center population estimates &amp; projections</li>
+                        <li><strong>Base Map:</strong> OpenStreetMap contributors</li>
+                    </ul>
+                    <p class="small text-muted">
+                        This is a demonstration prototype. Real production version should query live TIGERweb and Census APIs (requires backend proxy for CORS). 
+                        Data shown is illustrative/sample for demo purposes. Always verify with official sources for decision-making.
+                    </p>
+                    <p class="small"><strong>Example GEOID used:</strong> 484390139001 (Tarrant County, TX)</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Initialize Map
+        let map = L.map('map').setView([32.75, -97.33], 11); // Fort Worth / Tarrant County area
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Sample Block Group GeoJSON (realistic demo data around Fort Worth)
+        // In production: dynamically query https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/1/query
+        const sampleBlockGroups = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "GEOID": "484390139001",
+                        "NAME": "Block Group 1, Census Tract 139, Tarrant County, TX",
+                        "pop": 2450,
+                        "median_income": 78500,
+                        "poverty_rate": 9.2,
+                        "lep": 4.8,
+                        "race": { "White": 62, "Black": 12, "Hispanic": 18, "Asian": 5, "Other": 3 },
+                        "bachelors_plus": 38,
+                        "housing_units": 980
+                    },
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-97.35, 32.78], [-97.32, 32.78], [-97.32, 32.75], 
+                            [-97.35, 32.75], [-97.35, 32.78]
+                        ]]
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "GEOID": "484391139001",
+                        "NAME": "Block Group 1, Census Tract 1139, Tarrant County, TX",
+                        "pop": 3120,
+                        "median_income": 64500,
+                        "poverty_rate": 14.5,
+                        "lep": 11.2,
+                        "race": { "White": 48, "Black": 22, "Hispanic": 24, "Asian": 4, "Other": 2 },
+                        "bachelors_plus": 29,
+                        "housing_units": 1250
+                    },
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-97.38, 32.72], [-97.35, 32.72], [-97.35, 32.69], 
+                            [-97.38, 32.69], [-97.38, 32.72]
+                        ]]
+                    }
+                }
+            ]
+        };
+
+        let blockGroupLayer;
+        let currentFeature = null;
+        let raceChart = null;
+
+        function addBlockGroupLayer() {
+            blockGroupLayer = L.geoJSON(sampleBlockGroups, {
+                style: {
+                    color: "#0d6efd",
+                    weight: 2,
+                    fillOpacity: 0.15
+                },
+                onEachFeature: function(feature, layer) {
+                    layer.bindPopup(`<b>${feature.properties.NAME}</b><br>Click for full analysis`);
+                    
+                    layer.on('click', function() {
+                        selectBlockGroup(feature, layer);
+                    });
+                }
+            }).addTo(map);
         }
 
-        async function loadKMZ() {
-            const fileInput = document.getElementById('kmzFile');
-            const status = document.getElementById('kmzStatus');
-            status.classList.remove("hidden");
-            status.innerHTML = "Loading KMZ...";
-
-            if (!fileInput.files.length) return status.innerHTML = "❌ No file selected";
-
-            const file = fileInput.files[0];
-            projectPolygons = [];
-            map.eachLayer(l => { if (l instanceof L.Polygon) map.removeLayer(l); });
-
-            try {
-                const zip = await JSZip.loadAsync(file);
-                let kmlContent = null;
-                for (let path in zip.files) {
-                    if (path.toLowerCase().endsWith('.kml')) {
-                        kmlContent = await zip.files[path].async('string');
-                        break;
-                    }
-                }
-                if (!kmlContent) return status.innerHTML = "❌ No KML found";
-
-                const parser = new DOMParser();
-                const xml = parser.parseFromString(kmlContent, "text/xml");
-                const coordsList = xml.querySelectorAll("coordinates");
-
-                let polyCount = 0;
-                let allBounds = [];
-
-                coordsList.forEach(el => {
-                    const text = el.textContent.trim();
-                    if (!text) return;
-                    const points = text.split(/\s+/).map(pair => {
-                        const [lon, lat] = pair.split(',').map(Number);
-                        return [lat, lon];
-                    }).filter(p => !isNaN(p[0]));
-
-                    if (points.length > 2) {
-                        L.polygon(points, {color: "#003366", weight: 3, fillOpacity: 0.2}).addTo(map);
-                        projectPolygons.push(points);
-                        allBounds = allBounds.concat(points);
-                        polyCount++;
-                    }
-                });
-
-                if (polyCount > 0) {
-                    map.fitBounds(allBounds);
-                    status.innerHTML = `✅ Loaded ${polyCount} polygon(s)`;
+        function toggleLayer() {
+            if (blockGroupLayer) {
+                if (document.getElementById('showBlockGroups').checked) {
+                    map.addLayer(blockGroupLayer);
                 } else {
-                    status.innerHTML = "⚠️ No polygons found";
+                    map.removeLayer(blockGroupLayer);
                 }
-            } catch (e) {
-                console.error(e);
-                status.innerHTML = "❌ Error loading KMZ";
             }
         }
 
-        function updateDataOptions() {
-            const level = document.getElementById("dataType").value;
-            const container = document.getElementById("dataOptions");
-            container.innerHTML = level === "blockgroup" ? 
-                `<div class="grid grid-cols-2 gap-3 text-sm">
-                    <label><input type="checkbox" id="var_pop" checked> Population</label>
-                    <label><input type="checkbox" id="var_income" checked> Median Income</label>
-                    <label><input type="checkbox" id="var_minority" checked> % Minority</label>
-                    <label><input type="checkbox" id="var_poverty" checked> Poverty</label>
-                </div>` : 
-                `<div class="grid grid-cols-2 gap-3 text-sm">
-                    <label><input type="checkbox" id="var_pop" checked> Population</label>
-                </div>`;
+        function selectBlockGroup(feature, layer) {
+            // Reset previous highlight
+            if (currentFeature && currentFeature.layer) {
+                currentFeature.layer.setStyle({ fillOpacity: 0.15, weight: 2 });
+            }
+
+            // Highlight selected
+            layer.setStyle({ fillOpacity: 0.6, weight: 4, color: '#0d6efd' });
+            currentFeature = { feature, layer };
+
+            // Update sidebar
+            const props = feature.properties;
+            document.getElementById('selectedTitle').innerHTML = props.NAME;
+            document.getElementById('selectedInfo').innerHTML = `GEOID: ${props.GEOID}`;
+
+            // Populate stats
+            document.getElementById('pop').textContent = props.pop.toLocaleString();
+            document.getElementById('income').textContent = '$' + props.median_income.toLocaleString();
+            document.getElementById('poverty').textContent = props.poverty_rate + '%';
+            document.getElementById('lep').textContent = props.lep + '%';
+
+            // Metrics table
+            const tableBody = document.getElementById('metricsTable');
+            tableBody.innerHTML = `
+                <tr><td>Bachelor's degree or higher</td><td>${props.bachelors_plus}%</td></tr>
+                <tr><td>Housing Units</td><td>${props.housing_units.toLocaleString()}</td></tr>
+            `;
+
+            // Race chart
+            updateRaceChart(props.race);
+
+            document.getElementById('statsSection').style.display = 'block';
+            document.getElementById('noSelection').style.display = 'none';
         }
 
-        async function analyzeArea() {
-            const statusEl = document.getElementById("status");
-            statusEl.classList.remove("hidden");
-            statusEl.innerHTML = "Generating CSV... (demo mode)";
+        function updateRaceChart(raceData) {
+            const ctx = document.getElementById('raceChart');
+            if (raceChart) raceChart.destroy();
 
-            // Demo data for testing button
-            currentData = [{GEOID: "484390139001", Name: "Test Area", Population: 1450}];
-            currentCSV = "GEOID,Name,Population\n484390139001,Test Area,1450";
-
-            showPreview();
-            document.getElementById("downloadBtn").classList.remove("hidden");
-            document.getElementById("previewSection").classList.remove("hidden");
-            statusEl.innerHTML = "✅ CSV ready!";
+            raceChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(raceData),
+                    datasets: [{
+                        data: Object.values(raceData),
+                        backgroundColor: ['#0d6efd', '#6c757d', '#198754', '#ffc107', '#dc3545']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12 } }
+                    }
+                }
+            });
         }
 
-        function showPreview() {
-            const table = document.getElementById("previewTable");
-            table.innerHTML = "<tr><th>GEOID</th><th>Name</th><th>Population</th></tr><tr><td>484390139001</td><td>Test Area</td><td>1450</td></tr>";
+        // Address Search using Nominatim
+        async function searchAddress() {
+            const query = document.getElementById('addressSearch').value.trim();
+            if (!query) return;
+
+            try {
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&addressdetails=1`);
+                const data = await response.json();
+
+                if (data.length > 0) {
+                    const result = data[0];
+                    const lat = parseFloat(result.lat);
+                    const lon = parseFloat(result.lon);
+
+                    map.flyTo([lat, lon], 14);
+
+                    // Simulate finding nearby block group (demo only)
+                    setTimeout(() => {
+                        // Find closest sample feature (simple distance check)
+                        let closest = null;
+                        let minDist = Infinity;
+
+                        sampleBlockGroups.features.forEach(f => {
+                            const coords = f.geometry.coordinates[0][0];
+                            const dist = Math.sqrt(Math.pow(coords[0] - lon, 2) + Math.pow(coords[1] - lat, 2));
+                            if (dist < minDist) {
+                                minDist = dist;
+                                closest = f;
+                            }
+                        });
+
+                        if (closest && blockGroupLayer) {
+                            blockGroupLayer.eachLayer(layer => {
+                                if (layer.feature.properties.GEOID === closest.properties.GEOID) {
+                                    selectBlockGroup(closest, layer);
+                                    layer.openPopup();
+                                }
+                            });
+                        }
+                    }, 800);
+
+                } else {
+                    alert('No results found. Try a more specific address.');
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Search service temporarily unavailable. Please try clicking directly on the map.');
+            }
         }
 
-        function downloadCSV() {
-            if (!currentCSV) return;
-            const blob = new Blob([currentCSV], {type: "text/csv"});
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = "census_data.csv";
-            link.click();
+        function clearSelection() {
+            if (currentFeature && currentFeature.layer) {
+                currentFeature.layer.setStyle({ fillOpacity: 0.15, weight: 2 });
+            }
+            currentFeature = null;
+
+            document.getElementById('selectedTitle').innerHTML = 'No area selected';
+            document.getElementById('selectedInfo').innerHTML = 'Click a block group on the map or search an address.';
+            document.getElementById('statsSection').style.display = 'none';
+            document.getElementById('noSelection').style.display = 'block';
+
+            if (raceChart) {
+                raceChart.destroy();
+                raceChart = null;
+            }
         }
 
-        window.onload = () => {
-            initMap();
-            updateDataOptions();
-        };
+        function generateReport() {
+            if (!currentFeature) {
+                alert('Please select a block group first.');
+                return;
+            }
+
+            const props = currentFeature.feature.properties;
+            const reportHTML = `
+                <h6>Community Demographic Assessment Report</h6>
+                <p><strong>Area:</strong> ${props.NAME}</p>
+                <p><strong>GEOID:</strong> ${props.GEOID}</p>
+                <hr>
+                <h6>Key Findings</h6>
+                <ul>
+                    <li>Total Population: ${props.pop.toLocaleString()}</li>
+                    <li>Median Household Income: $${props.median_income.toLocaleString()}</li>
+                    <li>Poverty Rate: ${props.poverty_rate}%</li>
+                    <li>Limited English Proficiency: ${props.lep}%</li>
+                    <li>Bachelor's or higher: ${props.bachelors_plus}%</li>
+                </ul>
+                <p class="small text-muted">Generated on ${new Date().toLocaleDateString()}. Data for demonstration purposes only.</p>
+            `;
+
+            document.getElementById('reportContent').innerHTML = reportHTML;
+            new bootstrap.Modal(document.getElementById('reportModal')).show();
+        }
+
+        function downloadReport() {
+            if (!currentFeature) return;
+
+            const props = currentFeature.feature.properties;
+            const text = `Community Demographic Assessment Report\n\n` +
+                `Area: ${props.NAME}\n` +
+                `GEOID: ${props.GEOID}\n\n` +
+                `Total Population: ${props.pop}\n` +
+                `Median Household Income: $${props.median_income}\n` +
+                `Poverty Rate: ${props.poverty_rate}%\n` +
+                `Limited English Proficiency: ${props.lep}%\n` +
+                `Bachelor's degree or higher: ${props.bachelors_plus}%\n\n` +
+                `Race/Ethnicity: ${JSON.stringify(props.race)}\n\n` +
+                `Report generated: ${new Date().toISOString()}\n` +
+                `Source: Public Census data (demo)`;
+
+            const blob = new Blob([text], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `community-report-${props.GEOID}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function showDataSources() {
+            new bootstrap.Modal(document.getElementById('sourcesModal')).show();
+        }
+
+        // Initialize everything
+        function init() {
+            addBlockGroupLayer();
+            
+            // Optional: Click anywhere on map to clear if nothing selected
+            map.on('click', function(e) {
+                // You can add reverse geocoding here in production
+            });
+
+            // Demo tip
+            setTimeout(() => {
+                console.log('%c[Demo] Click on the blue block group polygons or search an address in Fort Worth area.', 'color:#6c757d');
+            }, 1500);
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
